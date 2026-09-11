@@ -565,7 +565,19 @@ bool IsPortOverlapWithPTPorts(int mgmtport)
     }
     return 0;
 }
-
+void * WebGUIRestart( void *pArg)
+{
+    UNREFERENCED_PARAMETER(pArg);
+    pthread_detach(pthread_self());
+    CcspTraceInfo(("%s:%d, WebGUIRestart called\n", __FUNCTION__, __LINE__));
+    #if defined (_XB6_PRODUCT_REQ_) || defined (_CBR_PRODUCT_REQ_)
+        v_secure_system("/bin/systemctl restart CcspWebUI.service");
+    #else
+    #err2
+        v_secure_system("/bin/sh /etc/webgui.sh &");
+    #endif
+    return NULL;
+}
 void* WebGuiRestart( void *arg )
 {
     UNREFERENCED_PARAMETER(arg);

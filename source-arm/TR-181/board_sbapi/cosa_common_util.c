@@ -106,6 +106,7 @@ volatile bool gMaptEnabled = false ; // false : disabled, true : enabled
 #endif
 
 extern ANSC_HANDLE bus_handle;
+extern void* WebGUIRestart( void *pArg );
 #if defined (WIFI_MANAGE_SUPPORTED)
 extern  char   g_Subsystem[32];
 
@@ -736,11 +737,13 @@ EvtDispterWanIpAddrsCallback(char *ip_addrs)
     vsystem("/usr/sbin/sec_pushown.sh --ip4 \"%s\"", ip_addrs);
 #endif
 
-     if (strcmp(ip_addrs,"0.0.0.0") != 0 ) {
+     if (ip_addrs != NULL && strcmp(ip_addrs, "0.0.0.0") != 0) {
+        pthread_t tid;
 
         CcspTraceInfo(("%s Setting current_wan_ipaddr and restarting firewall %d \n", __FUNCTION__,__LINE__)); 
 	    sysevent_set(se_fd, token, "current_wan_ipaddr", ip_addrs, 0);
 	    sysevent_set(se_fd, token, "firewall-restart", NULL, 0);
+        pthread_create(&tid, NULL, &WebGUIRestart, NULL);
     }
 #if defined (RBUS_WAN_IP)
     if (strcmp(previous_ip, ip_addrs) != 0) {
