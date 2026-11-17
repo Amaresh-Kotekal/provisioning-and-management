@@ -142,6 +142,7 @@ BOOL CMRt_Isltn_Enable(BOOL status);
 #define MEMINSIGHT_ENABLE_FILE_NVRAM "/nvram/.enable_meminsight"
 #define MEMINSIGHT_ENABLE_FILE_TMP "/tmp/.enable_meminsight"
 #define MEMINSIGHT_SERVICE "meminsight-runner.service"
+#define SYSTEMD_ANALYZE_ENABLE_SYSCFG_KEY "SystemdAnalyzeEnable"
 
 #define BOOTSTRAP_INFO_FILE_BACKUP "/nvram/bootstrap.json"
 #define CLEAR_TRACK_FILE "/nvram/ClearUnencryptedData_flags"
@@ -1777,6 +1778,52 @@ BOOL
 
     /* CcspTraceWarning(("Unsupported parameter '%s'\n", ParamName)); */
     return FALSE;
+}
+
+BOOL xSystemdAnalyze_SetParamBoolValue(ANSC_HANDLE hInsContext, char* ParamName, BOOL bValue)
+{
+    UNREFERENCED_PARAMETER(hInsContext);
+    int ret = 0;
+
+    if (strcmp(ParamName, "Enable") != 0)
+    {
+        CcspTraceWarning(("%s: Unsupported parameter '%s'\n", __FUNCTION__, ParamName));
+        return FALSE;
+    }
+
+    ret = syscfg_set_commit(NULL, SYSTEMD_ANALYZE_ENABLE_SYSCFG_KEY, bValue ? "true" : "false");
+    if (ret != 0)
+    {
+        CcspTraceError(("%s: syscfg_set_commit failed for %s, ret=%d\n",
+                        __FUNCTION__, SYSTEMD_ANALYZE_ENABLE_SYSCFG_KEY, ret));
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+BOOL xSystemdAnalyze_GetParamBoolValue(ANSC_HANDLE hInsContext, char* ParamName, BOOL* pBool)
+{
+    UNREFERENCED_PARAMETER(hInsContext);
+    char value[8] = {'\0'};
+    int ret = 0;
+
+    if (strcmp(ParamName, "Enable") != 0)
+    {
+        CcspTraceError(("%s: Unknown parameter %s\n", __FUNCTION__, ParamName));
+        return FALSE;
+    }
+
+    ret = syscfg_get(NULL, SYSTEMD_ANALYZE_ENABLE_SYSCFG_KEY, value, sizeof(value));
+    if (ret != 0)
+    {
+        CcspTraceError(("%s: syscfg_get failed for %s, ret=%d\n",
+                        __FUNCTION__, SYSTEMD_ANALYZE_ENABLE_SYSCFG_KEY, ret));
+        return FALSE;
+    }
+
+    *pBool = (strcmp(value, "1") == 0) || (strcasecmp(value, "true") == 0);
+    return TRUE;
 }
 
 /**
@@ -9496,6 +9543,23 @@ Feature_GetParamIntValue
              return TRUE;
          }
     }
+    if (strcmp(ParamName, "EDNSPacketSize") == 0)
+    {
+         /* collect value */
+char buf[16] = {0};
+         syscfg_get(NULL, "edns_packet_size", buf, sizeof(buf));
+         char *end = NULL;
+         long value = strtol(buf, &end, 10);
+         if (buf[0] == '\0' || *end != '\0' || value < 512 || value > 4096)
+         {
+             *pint = 1232;
+         }
+         else
+         {
+             *pint = (int)value;
+         }
+         return TRUE;
+    }
     return FALSE;
 }
 /**********************************************************************
@@ -10959,6 +11023,39 @@ Feature_SetParamIntValue
                CcspTraceInfo(("syscfg_set low_queue_reboot_threshold failed\n"));
         }
 	return TRUE;
+    }
+    if (strcmp(ParamName, "EDNSPacketSize") == 0)
+    {
+        CcspTraceInfo(("Set EDNSPacketSize \n"));
+        /* EDNS UDP payload size is valid from 512 through 4096 octets. */
+        if ((bValue < 512) || (bValue > 4096))
+        {
+            CcspTraceInfo(("EDNSPacketSize %d is out of supported range (512-4096), ignoring\n", bValue));
+            return FALSE;
+        }
+        char buf[16]={0};
+		char currentValue[16] = {0};
+        snprintf(buf, sizeof(buf), "%d", bValue);
+		
+    	if ((syscfg_get(NULL, "edns_packet_size", currentValue, sizeof(currentValue)) == 0) && (strcmp(currentValue, buf) == 0))
+    	{
+    	    CcspTraceInfo(("EDNSPacketSize unchanged, skipping update and DHCP restart\n"));
+        	return TRUE;
+	    }
+        if (syscfg_set_commit(NULL, "edns_packet_size", buf) != 0)
+        {
+               CcspTraceInfo(("syscfg_set edns_packet_size failed\n"));
+               return FALSE;
+        }
+        else
+        {
+            if (commonSyseventSet("dhcp_server-restart", "") != 0)
+            {
+                CcspTraceError(("Failed to set dhcp_server-restart sysevent\n"));
+                return FALSE;
+            }
+            return TRUE;
+        }
     }
     return FALSE;
 }
